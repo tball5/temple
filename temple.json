@@ -1,0 +1,36 @@
+{
+  "stations": [
+    {
+      "id": "chess",
+      "title": "CHESS",
+      "description": "2 Player Realtime Chess",
+      "button": "Play",
+      "url": "https://example.com/chess",
+      "image": "images/chess.jpg"
+    },
+    {
+      "id": "pondering",
+      "title": "PONDERING",
+      "description": "Polyrhythms - Shapes and Sounds",
+      "button": "View the Orb",
+      "url": "https://example.com/polyrhythms",
+      "image": "images/pondering.jpg"
+    },
+    {
+      "id": "solar",
+      "title": "SOLAR SYSTEM",
+      "description": "Interactive Map - Unified Scale for True Size, Distance, and Orbits",
+      "button": "Explore",
+      "url": "https://example.com/solar",
+      "image": "images/solar.jpg"
+    },
+    {
+      "id": "exit",
+      "title": "EXIT",
+      "description": "Leave the temple.",
+      "button": "Leave",
+      "url": "https://example.com",
+      "image": null
+    }
+  ]
+}

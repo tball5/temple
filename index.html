@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>The Temple</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05080d;
+    font-family: "Palatino Linotype", Palatino, Georgia, serif; color: #e6dcc3;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  canvas { display: block; touch-action: none; }
+
+  /* touch controls: hidden until the page decides it's a touch device */
+  #stick, #vert { display: none; }
+  body.touch #stick, body.touch #vert { display: block; }
+
+  #stick { position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(26px, env(safe-area-inset-bottom));
+    width: 132px; height: 132px; border-radius: 50%; z-index: 6;
+    background: rgba(18, 32, 46, .34); border: 1px solid rgba(111, 212, 255, .3); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+    border-radius: 50%; background: rgba(111, 212, 255, .3); border: 1px solid rgba(199, 233, 255, .6); }
+
+  #vert { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(26px, env(safe-area-inset-bottom));
+    z-index: 6; display: flex; flex-direction: column; gap: 12px; }
+  #vert button { width: 62px; height: 62px; border-radius: 50%; font-size: 22px; cursor: pointer;
+    color: #cfe9ff; background: rgba(18, 32, 46, .34); border: 1px solid rgba(111, 212, 255, .3); }
+  #vert button:active { background: rgba(111, 212, 255, .28); }
+
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+    border-radius: 50%; background: #e6dcc3; opacity: .6; pointer-events: none; z-index: 5;
+    transition: transform .15s, background .15s; }
+  #crosshair.active { transform: scale(2.2); background: #6fd4ff; opacity: 1; }
+  #hint { position: fixed; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); z-index: 5;
+    font-size: 15px; text-shadow: 0 0 8px #000; pointer-events: none; opacity: 0; transition: opacity .2s; }
+
+  #start { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: #05080d; transition: opacity .7s ease; }
+  #start.gone { opacity: 0; pointer-events: none; }
+  #dots { display: inline-block; width: 1.2em; text-align: left; animation: dots 1.1s steps(4, end) infinite; }
+  @keyframes dots { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0 0 0); } }
+  #start h1 { margin: 0; font-weight: normal; letter-spacing: .1em;
+    font-size: clamp(17px, 2.6vw, 23px); color: #6d8aa6; }
+
+  #popup { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20;
+    width: min(400px, 88vw); display: none; overflow: hidden;
+    background: #0f1a26; border: 1px solid #3a5878; box-shadow: 0 0 40px rgba(111, 212, 255, .18); }
+  #popup-image { display: none; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+    border-bottom: 1px solid #3a5878; }
+  #popup-body { padding: 26px 28px 28px; text-align: center; }
+  #popup h2 { margin: 0 0 10px; font-weight: normal; font-size: 24px; letter-spacing: .08em; }
+  #popup p { margin: 0 0 22px; line-height: 1.55; opacity: .8; }
+  #popup a { display: inline-block; padding: 10px 28px; border: 1px solid #6fd4ff; color: #e6dcc3; text-decoration: none; }
+  #popup a:hover, #popup a:focus-visible { background: #6fd4ff; color: #0f1a26; outline: none; }
+  #popup button { display: block; margin: 16px auto 0; background: none; border: none; color: #e6dcc3;
+    opacity: .6; font: inherit; cursor: pointer; }
+  #popup button:hover, #popup button:focus-visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="start">
+  <h1>Entering The Temple<span id="dots">...</span></h1>
+</div>
+<div id="stick"><div id="knob"></div></div>
+<div id="vert"><button id="btn-up" aria-label="Rise">&#9650;</button><button id="btn-down" aria-label="Descend">&#9660;</button></div>
+<div id="crosshair"></div>
+<div id="hint">Click to open</div>
+<div id="popup" role="dialog">
+  <img id="popup-image" alt="">
+  <div id="popup-body">
+    <h2 id="popup-title"></h2>
+    <p id="popup-desc"></p>
+    <a id="popup-link" href="#" target="_blank" rel="noopener"></a>
+    <button id="popup-close">Close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// =====================================================================
+// Station titles, images and URLs live in temple.json (loaded below).
+// These values are only used if that file can't be read.
+// =====================================================================
+const FALLBACK = { stations: [
+  { id: "chess",     title: "CHESS",        description: "2 Player Realtime Chess",                                                button: "Play",         url: "https://example.com/chess",       image: "images/chess.jpg" },
+  { id: "pondering", title: "PONDERING",    description: "Polyrhythms - Shapes and Sounds",                                        button: "View the Orb", url: "https://example.com/polyrhythms", image: "images/pondering.jpg" },
+  { id: "solar",     title: "SOLAR SYSTEM", description: "Interactive Map - Unified Scale for True Size, Distance, and Orbits",    button: "Explore",      url: "https://example.com/solar",       image: "images/solar.jpg" },
+  { id: "exit",      title: "EXIT",         description: "Leave the temple.",                                          button: "Leave",   url: "https://example.com",              image: null }
+]};
+
+fetch("temple.json", { cache: "no-store" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(cfg => buildTemple(normalize(cfg)))
+  .catch(err => {
+    console.warn("temple.json not loaded (" + err.message + ") - using built-in values. Serve the folder over http to load it.");
+    buildTemple(FALLBACK.stations);
+  });
+
+function normalize(cfg) {
+  const list = Array.isArray(cfg) ? cfg : (cfg.stations || []);
+  return FALLBACK.stations.map((def, i) => Object.assign({}, def, list[i] || {}));
+}
+
+// =====================================================================
+function buildTemple(LINKS) {
+
+// Pyramid size
+const HALF = 22;          // half the width of the square base
+const HEIGHT = 30;        // height to the tip
+const SLOPE = HALF / HEIGHT;
+const EYE_HEIGHT = 1.7, SPEED = 7;
+
+const TOUCH = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+if (TOUCH) document.body.classList.add("touch");
+
+// Wall sections - one tucked into each corner
+const BLOCK_W = 7, BLOCK_H = 7, BLOCK_D = 7;
+const FACE_DIST = Math.SQRT2 * (HALF - BLOCK_H * SLOPE) - BLOCK_D / 2 - 0.2;
+const PEDESTAL_DIST = FACE_DIST - 3.2;
+
+// Picture on each wall face
+const PIC_W = 5.6, PIC_H = 3.3, PIC_Y = 4.3;
+
+// Name chiselled straight into the wall above the picture
+const SIGN_W = 5.8, SIGN_H = 0.95, SIGN_Y = 6.4;
+
+const PIC_OPACITY = 0.7;   // how strongly the picture sits over the stone
+
+const ACCENT = 0x6fd4ff;   // glowing blue
+
+// ---------- scene ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05080d);
+scene.fog = new THREE.Fog(0x05080d, 12, 75);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 150);
+// start backed up against the exit door in the back-left corner, facing the
+// middle of the room with a slight upward tilt
+const START_DIST = FACE_DIST - 2.2;
+camera.position.set(-Math.SQRT1_2 * START_DIST, EYE_HEIGHT, Math.SQRT1_2 * START_DIST);
+camera.rotation.order = "YXZ";
+
+const renderer = new THREE.WebGLRenderer({ antialias: !TOUCH });
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// ---------- ancient blue stone texture ----------
+function stoneTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#2f4a66"; g.fillRect(0, 0, 256, 256);
+  for (let row = 0; row < 4; row++) {
+    const off = row % 2 ? 64 : 0;
+    for (let x = -64 + off; x < 256; x += 128) {
+      const l = Math.random() * 14 - 7;
+      g.fillStyle = `rgb(${47 + l},${74 + l},${102 + l})`;
+      g.fillRect(x, row * 64, 128, 64);
+    }
+  }
+  for (let i = 0; i < 3500; i++) {
+    const v = Math.random();
+    g.fillStyle = v > .5 ? "rgba(140,170,195,.12)" : "rgba(10,20,32,.25)";
+    g.fillRect(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 3, 2 + Math.random() * 3);
+  }
+  g.strokeStyle = "rgba(8,14,22,.85)"; g.lineWidth = 3;
+  for (let row = 0; row < 4; row++) {
+    const y = row * 64;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke();
+    const off = row % 2 ? 64 : 0;
+    for (let x = off; x <= 256; x += 128) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 64); g.stroke(); }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const stoneTex = stoneTexture();
+const TILE = 4; // world units per texture tile
+
+// ---------- pyramid walls ----------
+const slant = Math.hypot(HALF, HEIGHT);
+const wallGeo = new THREE.BufferGeometry();
+wallGeo.setAttribute("position", new THREE.Float32BufferAttribute([
+  -HALF, 0, HALF,   HALF, 0, HALF,   0, HEIGHT, 0
+], 3));
+wallGeo.setAttribute("uv", new THREE.Float32BufferAttribute([
+  0, 0,   (HALF * 2) / TILE, 0,   HALF / TILE, slant / TILE
+], 2));
+wallGeo.computeVertexNormals();
+
+const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, side: THREE.DoubleSide, roughness: 0.95 });
+for (let k = 0; k < 4; k++) {
+  const w = new THREE.Mesh(wallGeo, wallMat);
+  w.rotation.y = k * Math.PI / 2;
+  scene.add(w);
+}
+
+const floorTex = stoneTexture();
+floorTex.repeat.set((HALF * 2) / TILE, (HALF * 2) / TILE);
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(HALF * 2, HALF * 2),
+  new THREE.MeshStandardMaterial({ map: floorTex, color: 0x9aa8b8, roughness: 1 })
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+// ---------- light from the tip ----------
+scene.add(new THREE.AmbientLight(0x3a5270, 0.9));
+const mainLight = new THREE.PointLight(0x8fd8ff, 1.3, 90);
+mainLight.position.set(0, 14, 0);
+scene.add(mainLight);
+
+
+// ---------- matrix rain, living inside the light beam ----------
+// Your column/drop logic, drawn to an offscreen canvas instead of a screen
+// overlay, then wrapped around two cones descending from the tip, so the
+// glyphs stay in a single column and converge at the point.
+const RAIN_W = 768, RAIN_H = 1536, RAIN_FONT = 24;   // more pixels per glyph = sharper
+const RAIN_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*+-=[]{}|;:<>?/!～！￥（）【】';
+const RAIN_COLS = Math.floor(RAIN_W / RAIN_FONT);
+const RAIN_SPEED = 0.5;   // overall fall rate: lower = slower
+const RAIN_FILL = 0.8;    // share of columns that run at all: lower = thinner
+
+const RAIN_ROWS = RAIN_H / RAIN_FONT;
+
+// Three independent rain fields, each with its own canvas and its own drop
+// state, so the layers are never falling in lockstep. Within a field, every
+// column also gets its own fall speed, so columns drift past one another
+// instead of marching down together.
+function makeRainField(speedScale) {
+  const canvas = document.createElement("canvas");
+  canvas.width = RAIN_W; canvas.height = RAIN_H;
+  const f = { ctx: canvas.getContext("2d"), canvas, drops: [], speeds: [], live: [], textures: [] };
+  for (let i = 0; i < RAIN_COLS; i++) {
+    f.drops[i] = Math.random() * (RAIN_ROWS + 30) - 30;
+    f.speeds[i] = (0.7 + Math.random() * 0.6) * speedScale * RAIN_SPEED;
+    f.live[i] = Math.random() < RAIN_FILL;   // the rest stay empty, opening gaps
+  }
+  return f;
+}
+const rainFields = [makeRainField(1), makeRainField(0.8), makeRainField(1.2)];
+
+function drawField(f) {
+  const g = f.ctx;
+  // fade the old glyphs toward transparent rather than toward black,
+  // so the column stays see-through
+  g.globalCompositeOperation = "destination-out";
+  g.fillStyle = "rgba(0,0,0,0.13)";   // bigger = shorter trails
+  g.fillRect(0, 0, RAIN_W, RAIN_H);
+  g.globalCompositeOperation = "source-over";
+
+  g.font = RAIN_FONT + "px monospace";
+  for (let i = 0; i < f.drops.length; i++) {
+    const x = i * RAIN_FONT;
+    const y = Math.round(f.drops[i]) * RAIN_FONT;   // whole pixels, not fractional
+
+    // a resting column still has to travel and recycle - only its drawing is skipped
+    if (f.live[i]) {
+      g.fillStyle = "rgba(224, 242, 255, 1)";
+      g.fillText(RAIN_CHARS.charAt(Math.floor(Math.random() * RAIN_CHARS.length)), x, y);
+      if (f.drops[i] > 1) {
+        g.fillStyle = "rgba(130, 178, 218, 0.5)";
+        g.fillText(RAIN_CHARS.charAt(Math.floor(Math.random() * RAIN_CHARS.length)), x, y - RAIN_FONT);
+      }
+    }
+
+    if (y > RAIN_H) {
+      f.drops[i] = -Math.random() * 14;    // straight back to the top, no pause
+      f.live[i] = Math.random() < RAIN_FILL;
+    }
+    f.drops[i] += f.speeds[i];
+  }
+  // Erase toward the top and bottom edges so the glyphs dissolve instead of
+  // stopping on a hard line, which is what was revealing the cone's shape.
+  if (!f.edgeFade) {
+    const grad = g.createLinearGradient(0, 0, 0, RAIN_H);
+    grad.addColorStop(0, "rgba(0,0,0,1)");
+    grad.addColorStop(0.1, "rgba(0,0,0,0)");
+    grad.addColorStop(0.86, "rgba(0,0,0,0)");
+    grad.addColorStop(1, "rgba(0,0,0,1)");
+    f.edgeFade = grad;
+  }
+  g.globalCompositeOperation = "destination-out";
+  g.fillStyle = f.edgeFade;
+  g.fillRect(0, 0, RAIN_W, RAIN_H);
+  g.globalCompositeOperation = "source-over";
+
+  for (let k = 0; k < f.textures.length; k++) f.textures[k].needsUpdate = true;
+}
+
+function drawRain() { for (let i = 0; i < rainFields.length; i++) drawField(rainFields[i]); }
+drawRain();
+
+const RAIN_TALL = HEIGHT - 1;
+const rainLayers = [];
+
+// One texture per field, each reading its canvas at a different scale and
+// horizontal offset. A cloned texture does NOT inherit needsUpdate from its
+// source, so each layer needs its own texture object.
+function rainTexture(field, rep, off) {
+  const t = new THREE.CanvasTexture(field.canvas);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  t.repeat.set(rep, 1);
+  t.offset.set(off, 0);
+  t.minFilter = THREE.LinearFilter;      // no mipmaps: they were blurring the text
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  t.needsUpdate = true;
+  field.textures.push(t);
+  return t;
+}
+const RT = [
+  rainTexture(rainFields[0], 2, 0),
+  rainTexture(rainFields[1], 3, 0.33),
+  rainTexture(rainFields[2], 2.5, 0.66)
+];
+
+function addRainMesh(geo, tex, op, spin) {
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, opacity: op, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, fog: false
+  }));
+  m.userData.spin = spin;
+  scene.add(m);
+  rainLayers.push(m);
+  return m;
+}
+
+// nested shells, widest to tightest
+[[0.22, 1.85, RT[1], 0.48, -0.04],
+ [0.10, 1.50, RT[0], 1.0,  0.06],
+ [0.05, 0.62, RT[2], 0.55, 0.10]].forEach(([rTop, rBot, tex, op, spin]) => {
+  const m = addRainMesh(new THREE.CylinderGeometry(rTop, rBot, RAIN_TALL, 48, 1, true), tex, op, spin);
+  m.position.y = RAIN_TALL / 2;
+});
+
+// flat sheets running straight through the axis, so glyphs fall down the
+// inside of the column too instead of only around its surface
+function sheetGeo(topW, botW, h) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([
+    -botW / 2, 0, 0,   botW / 2, 0, 0,   topW / 2, h, 0,
+    -botW / 2, 0, 0,   topW / 2, h, 0,  -topW / 2, h, 0
+  ], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([
+    0, 0,  1, 0,  1, 1,
+    0, 0,  1, 1,  0, 1
+  ], 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+[0, Math.PI / 3, (2 * Math.PI) / 3].forEach((rot, i) => {
+  const m = addRainMesh(sheetGeo(0.3, 3.1, RAIN_TALL), RT[i], 0.42, 0.05 - i * 0.035);
+  m.rotation.y = rot;
+});
+
+
+// ---------- helpers ----------
+const clickables = [];
+const blockers = [];
+const texLoader = new THREE.TextureLoader();
+
+// The name cut straight into the wall stone: no plaque, just a shadow and a
+// highlight on each letter so the wall shows through the carving itself.
+function makeStoneSign(text) {
+  const W = 1024, H = 168;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const g = c.getContext("2d");
+
+  g.font = "104px Palatino Linotype, Palatino, Georgia, serif";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  const fit = Math.min(1, (W - 60) / g.measureText(text).width);
+  if (fit < 1) g.font = Math.floor(104 * fit) + "px Palatino Linotype, Palatino, Georgia, serif";
+
+  const cx = W / 2, cy = H / 2 + 3;
+  g.fillStyle = "rgba(12,22,33,.85)"; g.fillText(text, cx + 4, cy + 4);   // shadow in the groove
+  g.fillStyle = "rgba(196,216,236,.8)"; g.fillText(text, cx - 3, cy - 3); // lit upper edge
+  g.fillStyle = "rgba(58,78,98,.35)"; g.fillText(text, cx, cy);           // faint recessed face
+
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex, transparent: true, alphaTest: 0.01, depthWrite: false, roughness: 0.9
+  });
+  return new THREE.Mesh(new THREE.PlaneGeometry(SIGN_W, SIGN_H), mat);
+}
+
+// An irregular soft puff, used for the smoke curling inside the orb.
+function smokeTexture() {
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d");
+  for (let i = 0; i < 7; i++) {
+    const x = S / 2 + (Math.random() - 0.5) * 36;
+    const y = S / 2 + (Math.random() - 0.5) * 36;
+    const r = 20 + Math.random() * 28;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, "rgba(255,255,255,0.34)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0.13)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+// Soft blue clouds on transparent, for the swirl inside the orb.
+function orbCloudTexture(seed) {
+  const S = 256;
+  const c = document.createElement("canvas");
+  c.width = S; c.height = S;
+  const g = c.getContext("2d");
+  for (let i = 0; i < 46; i++) {
+    const x = Math.random() * S, y = Math.random() * S;
+    const r = 14 + Math.random() * 48;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    const hue = 190 + Math.random() * 30;
+    grad.addColorStop(0, `hsla(${hue}, 95%, ${62 + Math.random() * 22}%, ${0.3 + Math.random() * 0.35})`);
+    grad.addColorStop(1, `hsla(${hue}, 95%, 55%, 0)`);
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.offset.set(seed, seed * 0.5);
+  return t;
+}
+
+function checkerTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    g.fillStyle = (x + y) % 2 ? "#1c2a3a" : "#e6dcc3";
+    g.fillRect(x * 16, y * 16, 16, 16);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+// A stone wall section tucked into a corner, facing the center, carrying a picture.
+// dir = unit vector pointing from the center toward that corner.
+function makeWallSection(dir, linkIndex, showPicture, facePick, recess) {
+  const data = LINKS[linkIndex];
+
+  const group = new THREE.Group();
+  group.position.set(dir.x * FACE_DIST, 0, dir.z * FACE_DIST);
+  group.rotation.y = Math.atan2(-dir.x, -dir.z);   // local +Z faces the center
+  group.userData.linkIndex = linkIndex;
+  scene.add(group);
+
+  const blockTex = stoneTex.clone(); blockTex.needsUpdate = true;
+  blockTex.repeat.set(BLOCK_W / TILE, BLOCK_H / TILE);
+  const blockMat = new THREE.MeshStandardMaterial({ map: blockTex, color: 0xc4d0dc, roughness: 0.9 });
+
+  if (recess) {
+    // The corner is hollowed into a passage running away from the room: two
+    // piers, a header across the top, and stone filling the depth behind it.
+    const OPEN_W = 4.9, OPEN_H = 6.0, pierW = (BLOCK_W - OPEN_W) / 2;
+    [-1, 1].forEach(sg => {
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(pierW, BLOCK_H, BLOCK_D), blockMat);
+      pier.position.set(sg * (OPEN_W + pierW) / 2, BLOCK_H / 2, -BLOCK_D / 2);
+      group.add(pier);
+    });
+
+    const header = new THREE.Mesh(new THREE.BoxGeometry(BLOCK_W, BLOCK_H - OPEN_H, BLOCK_D), blockMat);
+    header.position.set(0, (BLOCK_H + OPEN_H) / 2, -BLOCK_D / 2);
+    group.add(header);
+
+    const backD = BLOCK_D - recess;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(OPEN_W, OPEN_H, backD), blockMat);
+    back.position.set(0, OPEN_H / 2, -recess - backD / 2);
+    group.add(back);
+
+    // a little light down the passage, or the doors sit in the dark
+    const deep = new THREE.PointLight(0x8fd8ff, 0.22, 7);
+    deep.position.set(0, 3.4, -recess + 1.4);
+    group.add(deep);
+  } else {
+    const block = new THREE.Mesh(new THREE.BoxGeometry(BLOCK_W, BLOCK_H, BLOCK_D), blockMat);
+    block.position.set(0, BLOCK_H / 2, -BLOCK_D / 2);
+    group.add(block);
+  }
+
+  // the picture, blended straight onto the stone - no backing panel, so the
+  // block shows through it. (For jpgs that are mostly black, swapping the
+  // blending below to THREE.AdditiveBlending drops the black out entirely.)
+  let picMat = null;
+  if (showPicture && data.image) {
+    picMat = new THREE.MeshBasicMaterial({
+      color: 0xdedede, transparent: true, opacity: PIC_OPACITY, depthWrite: false
+    });
+    const pic = new THREE.Mesh(new THREE.PlaneGeometry(PIC_W, PIC_H), picMat);
+    pic.position.set(0, PIC_Y, 0.06);
+    pic.visible = false;            // nothing shows until the jpg arrives
+    group.add(pic);
+
+    texLoader.load(
+      data.image,
+      tex => {
+        picMat.map = tex;
+        picMat.needsUpdate = true;
+        pic.visible = true;
+        const ar = tex.image.width / tex.image.height;
+        // fit the image on the wall without stretching it
+        pic.scale.set(ar > PIC_W / PIC_H ? 1 : (ar * PIC_H) / PIC_W,
+                      ar > PIC_W / PIC_H ? (PIC_W / ar) / PIC_H : 1, 1);
+      },
+      undefined,
+      () => console.warn("image not found: " + data.image)
+    );
+  }
+
+  const sign = makeStoneSign(data.title);
+  sign.position.set(0, recess ? 6.5 : SIGN_Y, 0.04);
+  group.add(sign);
+
+  // the exit corner sits in shadow, unlike the three lit alcoves
+  const baseLight = recess ? 0.26 : 0.9;
+  const light = new THREE.PointLight(0x8fd8ff, baseLight, recess ? 9 : 12);
+  light.position.set(0, 4, 2.5);
+  light.userData.base = baseLight;
+  group.add(light);
+
+  // Invisible pick volume. The raycast tests only these four boxes instead of
+  // walking every mesh in the scene (the chess set alone is ~98 of them), and
+  // it gives the whole alcove a generous target rather than the exact geometry.
+  // Pick volume on the wall face, sized to the exit's double door. Only the
+  // exit uses it; the other three are picked by their pedestal instead.
+  if (facePick) {
+    const PICK_W = 4.2, PICK_H = 5.6, PICK_D = 0.5 + (recess || 0);
+    const proxy = new THREE.Mesh(
+      new THREE.BoxGeometry(PICK_W, PICK_H, PICK_D),
+      // material.visible keeps it out of the render but leaves it raycastable;
+      // DoubleSide so it still registers when you're standing inside the volume
+      new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
+    );
+    proxy.position.set(0, PICK_H / 2, 0.15 - (recess || 0) / 2);
+    group.add(proxy);
+    clickables.push(proxy);
+  }
+
+  // collision: an oriented box, tested in the section's own local space
+  blockers.push({
+    ox: group.position.x, oz: group.position.z,
+    rot: group.rotation.y,
+    hx: BLOCK_W / 2, hz: BLOCK_D / 2, cz: -BLOCK_D / 2
+  });
+
+  return { group, light, picMat };
+}
+
+// ---------- the four corners ----------
+const D = Math.SQRT1_2;
+const WALL_DIRS = [
+  { x: -D, z: -D },  // front-left corner
+  { x:  D, z: -D },  // front-right corner
+  { x:  D, z:  D },  // back-right corner
+  { x: -D, z:  D }   // back-left corner (exit)
+];
+
+// Which corner each station stands in, as an index into WALL_DIRS. LINKS order
+// is chess, pondering, solar, exit - change this list to move a station and its
+// name, picture, object and link all travel together.
+// From the start position: front-left is on your left, front-right is straight
+// ahead, back-right is on your right.
+const CORNER_OF = [2, 0, 1, 3];
+
+const stations = [];
+for (let i = 0; i < 3; i++) {
+  const dir = WALL_DIRS[CORNER_OF[i]];
+  const section = makeWallSection(dir, i, true, false);
+
+  const pedestal = new THREE.Group();
+  pedestal.position.z = FACE_DIST - PEDESTAL_DIST;
+  section.group.add(pedestal);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.6, 0.75, 1.1, 24),
+    new THREE.MeshStandardMaterial({ map: stoneTex, color: 0xc4d0dc, roughness: 0.9 })
+  );
+  base.position.y = 0.55;
+  pedestal.add(base);
+
+  // the pedestal and whatever stands on it are pick targets as well, using the
+  // same invisible-box trick so the raycast stays cheap
+  const pedProxy = new THREE.Mesh(
+    new THREE.BoxGeometry(1.8, 2.4, 1.8),
+    new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
+  );
+  pedProxy.position.y = 1.2;
+  pedestal.add(pedProxy);
+  clickables.push(pedProxy);
+
+  const item = new THREE.Group();
+  item.position.y = 1.8;
+  pedestal.add(item);
+
+  const glowMats = [];
+  if (i === 0) {        // chess board set flat on the pedestal
+    item.position.y = 1.1;          // the pedestal's top surface
+
+    const topMat = new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0.05 });
+    const edgeMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0xc4d0dc, roughness: 0.9 });
+    // 0.82 across: the corners now land inside the pedestal's 1.2 top
+    const BOARD = 0.82, SQ = BOARD / 8, TOP = 0.08;
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(BOARD, TOP, BOARD),
+      [edgeMat, edgeMat, topMat, edgeMat, edgeMat, edgeMat]   // checker on the top face only
+    );
+    board.position.y = TOP / 2;
+    item.add(board);
+    glowMats.push(topMat);
+
+    // ---- pieces ----
+    // Geometries are built once and shared by all 32 pieces.
+    const G = {
+      foot:       new THREE.CylinderGeometry(0.030, 0.038, 0.020, 12),
+      pawnBody:   new THREE.CylinderGeometry(0.016, 0.028, 0.035, 12),
+      pawnHead:   new THREE.SphereGeometry(0.020, 12, 10),
+      rookBody:   new THREE.CylinderGeometry(0.028, 0.030, 0.050, 12),
+      rookTop:    new THREE.CylinderGeometry(0.034, 0.030, 0.014, 12),
+      knightBody: new THREE.CylinderGeometry(0.020, 0.030, 0.040, 12),
+      knightHead: new THREE.BoxGeometry(0.024, 0.046, 0.040),
+      bishopBody: new THREE.ConeGeometry(0.030, 0.062, 14),
+      bishopTop:  new THREE.SphereGeometry(0.013, 10, 8),
+      queenBody:  new THREE.ConeGeometry(0.032, 0.070, 14),
+      queenTop:   new THREE.SphereGeometry(0.017, 12, 10),
+      kingBody:   new THREE.ConeGeometry(0.030, 0.072, 14),
+      kingStem:   new THREE.BoxGeometry(0.010, 0.030, 0.010),
+      kingArm:    new THREE.BoxGeometry(0.026, 0.009, 0.009)
+    };
+
+    // glassy pieces: a tight specular plus a Fresnel-ish rim from the backfaces
+    // is what keeps them readable once they're this see-through
+    const whiteMat = new THREE.MeshPhongMaterial({
+      color: 0xdfeaf2, transparent: true, opacity: 0.26, shininess: 190,
+      specular: 0xffffff, depthWrite: false, side: THREE.DoubleSide
+    });
+    const blackMat = new THREE.MeshPhongMaterial({
+      color: 0x4d7ea8, transparent: true, opacity: 0.3, shininess: 160,
+      specular: 0xbcd8ee, depthWrite: false, side: THREE.DoubleSide
+    });
+
+    function makePiece(type, mat) {
+      const g = new THREE.Group();
+      const add = (geo, y) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.y = y;
+        m.renderOrder = 2;   // over the board, which is opaque
+        g.add(m);
+        return m;
+      };
+      add(G.foot, 0.010);
+      if (type === "p") {
+        add(G.pawnBody, 0.0375);
+        add(G.pawnHead, 0.069);
+      } else if (type === "r") {
+        add(G.rookBody, 0.045);
+        add(G.rookTop, 0.077);
+      } else if (type === "n") {
+        add(G.knightBody, 0.040);
+        const head = add(G.knightHead, 0.083);
+        head.rotation.x = -0.34;
+        head.position.z = 0.008;
+      } else if (type === "b") {
+        add(G.bishopBody, 0.051);
+        add(G.bishopTop, 0.090);
+      } else if (type === "q") {
+        add(G.queenBody, 0.055);
+        add(G.queenTop, 0.103);
+      } else {  // king
+        add(G.kingBody, 0.056);
+        add(G.kingStem, 0.107);
+        add(G.kingArm, 0.113);
+      }
+      g.scale.setScalar(1.25);
+      return g;
+    }
+
+    // starting position: back rank, then pawns, for each side
+    const BACK = ["r", "n", "b", "q", "k", "b", "n", "r"];
+    function place(type, mat, col, row, facing) {
+      const p = makePiece(type, mat);
+      p.position.set(-BOARD / 2 + (col + 0.5) * SQ, TOP, -BOARD / 2 + (row + 0.5) * SQ);
+      p.rotation.y = facing;
+      item.add(p);
+    }
+    for (let c = 0; c < 8; c++) {
+      place(BACK[c], whiteMat, c, 0, 0);
+      place("p",     whiteMat, c, 1, 0);
+      place("p",     blackMat, c, 6, Math.PI);
+      place(BACK[c], blackMat, c, 7, Math.PI);
+    }
+
+    item.userData.tick = () => {};  // sits still
+  } else if (i === 1) { // glass orb resting on the pedestal
+    const R = 0.54;                 // nearly as wide as the pedestal top
+    item.position.y = 1.1 + R;      // sitting on the surface, not floating
+
+    // engraved ring on the stone where the orb rests
+    const cradle = new THREE.Mesh(
+      new THREE.RingGeometry(0.4, 0.56, 40),
+      new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+    );
+    cradle.rotation.x = -Math.PI / 2;
+    cradle.position.y = -R + 0.005;
+    item.add(cradle);
+
+    // two clouded shells inside, turning on different tilted axes
+    const swirls = [];
+    [[0.525, 0.16, 0.75, 0.3], [0.505, 0.53, -1.05, 0.34]].forEach(([r, seed, spin, op]) => {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 32, 24),
+        new THREE.MeshBasicMaterial({
+          map: orbCloudTexture(seed), transparent: true, opacity: op,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+        })
+      );
+      mesh.renderOrder = 1;
+      mesh.userData.spin = spin;
+      item.add(mesh);
+      swirls.push(mesh);
+    });
+
+    // smoke curling around inside: soft camera-facing puffs that drift,
+    // turn and fade rather than hard little spheres
+    const smokeTex = smokeTexture();
+    const puffs = [];
+    for (let k = 0; k < 14; k++) {
+      const mat = new THREE.SpriteMaterial({
+        map: smokeTex, color: 0x9ed4f5, transparent: true,
+        opacity: 0.3, depthWrite: false, fog: false
+      });
+      const puff = new THREE.Sprite(mat);
+      const size = 0.2 + Math.random() * 0.16;
+      puff.scale.set(size, size, 1);
+      puff.renderOrder = 1;
+      puff.userData = {
+        rx: 0.1 + Math.random() * 0.2,
+        ry: 0.08 + Math.random() * 0.17,
+        rz: 0.1 + Math.random() * 0.2,
+        sp: 0.12 + Math.random() * 0.26,
+        ph: Math.random() * Math.PI * 2,
+        rot: (Math.random() - 0.5) * 0.5,
+        fade: 0.25 + Math.random() * 0.4,
+        op: 0.16 + Math.random() * 0.2
+      };
+      mat.rotation = Math.random() * Math.PI * 2;
+      item.add(puff);
+      puffs.push(puff);
+    }
+
+    const orbLight = new THREE.PointLight(0x8fd8ff, 0.22, 1.8);
+    item.add(orbLight);
+
+    // the glass, drawn last so everything inside shows through it
+    const glassMat = new THREE.MeshPhongMaterial({
+      color: 0x79b6e0, transparent: true, opacity: 0.32, shininess: 200,
+      specular: 0xffffff, depthWrite: false, side: THREE.DoubleSide
+    });
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(R, 44, 32), glassMat);
+    glass.renderOrder = 2;
+    item.add(glass);
+
+    // Fresnel edge: bright only where the surface turns away from you, which
+    // is what actually makes a glass sphere read as glass rather than as a glow.
+    const rimMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.FrontSide,
+      uniforms: { uColor: { value: new THREE.Color(0x3fa9f5) } },
+      vertexShader: `
+        varying vec3 vN; varying vec3 vV;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vN = normalize(normalMatrix * normal);
+          vV = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor;
+        varying vec3 vN; varying vec3 vV;
+        void main() {
+          float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 3.0);
+          gl_FragColor = vec4(uColor, f * 0.95);
+        }`
+    });
+    const rim = new THREE.Mesh(new THREE.SphereGeometry(R + 0.003, 44, 32), rimMat);
+    rim.renderOrder = 3;
+    item.add(rim);
+
+    // this one stays put instead of bobbing and spinning as a whole
+    item.userData.tick = (t, dt) => {
+      swirls.forEach((m, k) => {
+        m.rotation.y += dt * m.userData.spin;
+        m.rotation.x = 0.5 + k * 0.7 + Math.sin(t * 0.25 + k) * 0.25;
+      });
+      puffs.forEach(p => {
+        const d = p.userData;
+        const a = t * d.sp + d.ph;
+        p.position.set(
+          Math.sin(a) * d.rx + Math.sin(a * 1.7 + d.ph) * 0.04,
+          Math.cos(a * 0.78 + d.ph) * d.ry + Math.sin(a * 2.1) * 0.03,
+          Math.cos(a) * d.rz + Math.cos(a * 1.4 + d.ph) * 0.04
+        );
+        p.material.rotation += dt * d.rot;
+        p.material.opacity = d.op * (0.45 + 0.55 * Math.sin(t * d.fade + d.ph));
+      });
+      orbLight.intensity = 0.22 + Math.sin(t * 1.6) * 0.05;
+    };
+  } else {              // small sun with four planets on transparent rings
+    const orrery = new THREE.Group();
+    orrery.rotation.x = 0.34;       // tilted so the rings read as ellipses
+    item.add(orrery);
+
+    const sunMat = new THREE.MeshStandardMaterial({ color: 0xffc878, emissive: 0xff9a30, emissiveIntensity: 0.95 });
+    orrery.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 16), sunMat));
+    glowMats.push(sunMat);
+
+    const planets = [];
+    // radius, size, speed, colour - small grey, bigger orange, blue-green, then red
+    [[0.27, 0.026, 0.88, 0x9c9ea3],
+     [0.42, 0.038, 0.56, 0xe08a3c],
+     [0.57, 0.05,  0.37, 0x35a89c],
+     [0.72, 0.043, 0.25, 0xc0442e]].forEach(([rad, size, speed, color]) => {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(rad - 0.004, rad + 0.004, 80),
+        new THREE.MeshBasicMaterial({
+          color: 0x9ed4f5, transparent: true, opacity: 0.22,
+          side: THREE.DoubleSide, depthWrite: false, fog: false
+        })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      orrery.add(ring);
+
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(size, 18, 12),
+        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
+      );
+      orrery.add(mesh);
+      planets.push({ mesh, rad, speed, phase: Math.random() * Math.PI * 2 });
+    });
+
+    item.userData.tick = (t, dt) => {
+      item.position.y = 1.8 + Math.sin(t * 1.2) * 0.012;
+      orrery.rotation.y += dt * 0.12;
+      planets.forEach(p => {
+        const a = t * p.speed + p.phase;
+        p.mesh.position.set(Math.cos(a) * p.rad, 0, Math.sin(a) * p.rad);
+      });
+    };
+  }
+  glowMats.forEach(m => m.userData.base = m.emissiveIntensity);
+
+  stations.push(Object.assign({}, section, {
+    item, glowMats,
+    px: dir.x * PEDESTAL_DIST, pz: dir.z * PEDESTAL_DIST
+  }));
+}
+
+// ---------- exit: same wall section, but a sealed stone door instead of a picture ----------
+const EXIT_RECESS = 3.0;   // how far the doorway is set back into the corner
+const doorSection = makeWallSection(WALL_DIRS[CORNER_OF[3]], 3, false, true, EXIT_RECESS);
+
+// everything below hangs off this, sitting at the far end of the passage
+const doorway = new THREE.Group();
+doorway.position.z = -EXIT_RECESS;
+doorSection.group.add(doorway);
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x1a2533, roughness: 0.8 });
+const doorStone = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0xc4d0dc, roughness: 0.9 });
+// warm-leaning grey, because the room's light is blue and a neutral grey
+// would pick that up and read as blue iron
+const ironMat = new THREE.MeshStandardMaterial({ color: 0x8d8781, roughness: 0.95, metalness: 0.0 });
+
+// A tall double door: two leaves meeting in the middle, set in a stone frame.
+const DOOR_W = 4.2, DOOR_H = 5.6;
+const LEAF = DOOR_W / 2 + 0.02;   // slight overlap so no gap shows at the join
+
+[-1, 1].forEach(sideSign => {
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(LEAF, DOOR_H, 0.18), doorMat);
+  leaf.position.set(sideSign * (DOOR_W / 4), DOOR_H / 2, 0.09);
+  doorway.add(leaf);
+
+  // iron bands across each leaf
+  [1.1, 4.3].forEach(y => {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(LEAF - 0.12, 0.16, 0.05), ironMat);
+    band.position.set(sideSign * (DOOR_W / 4), y, 0.2);
+    doorway.add(band);
+  });
+
+  // ring handle just inside the seam, with a plate behind it
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16), ironMat);
+  plate.rotation.x = Math.PI / 2;
+  plate.position.set(sideSign * 0.34, 2.5, 0.2);
+  doorway.add(plate);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.04, 10, 28), ironMat);
+  ring.position.set(sideSign * 0.34, 2.28, 0.24);
+  doorway.add(ring);
+});
+
+// stone frame: two jambs and a lintel across the top
+[-1, 1].forEach(sideSign => {
+  const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.32, DOOR_H + 0.25, 0.36), doorStone);
+  jamb.position.set(sideSign * (DOOR_W / 2 + 0.16), (DOOR_H + 0.25) / 2, 0.14);
+  doorway.add(jamb);
+});
+
+// the join itself, drawn on rather than left open
+const seam = new THREE.Mesh(
+  new THREE.BoxGeometry(0.05, DOOR_H - 0.06, 0.02),
+  new THREE.MeshStandardMaterial({ color: 0x0d141d, roughness: 1 })
+);
+seam.position.set(0, DOOR_H / 2, 0.19);
+doorway.add(seam);
+
+const lintel = new THREE.Mesh(new THREE.BoxGeometry(DOOR_W + 1.0, 0.42, 0.42), doorStone);
+lintel.position.set(0, DOOR_H + 0.21, 0.15);
+doorway.add(lintel);
+stations.push(Object.assign({}, doorSection, { item: null, glowMats: [] }));
+
+// ---------- input ----------
+const keys = {};
+let yaw = -Math.PI / 4, pitch = 0.16;   // look toward the center, angled up a little
+let locked = false, dragMode = false, popupOpen = false;
+const joy = { x: 0, y: 0 };             // on-screen stick, -1..1
+let vert = 0;                           // on-screen rise / descend
+const aim = new THREE.Vector2(0, 0);
+
+const startEl = document.getElementById("start");
+const crosshair = document.getElementById("crosshair");
+const hint = document.getElementById("hint");
+const canvas = renderer.domElement;
+
+function requestLock() {
+  try {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(useDragMode);
+  } catch (e) { useDragMode(); }
+}
+
+function useDragMode() {
+  if (dragMode) return;
+  dragMode = true;
+  crosshair.style.display = "none";
+  if (!TOUCH) canvas.style.cursor = "grab";
+}
+
+// Two seconds of loading, then you're in. Pointer lock needs a real gesture,
+// so desktop starts in drag-look and captures the mouse on the first click.
+setTimeout(() => {
+  startEl.classList.add("gone");
+  setTimeout(() => { startEl.style.display = "none"; }, 700);
+  useDragMode();
+}, 1000);
+
+let wasLocked = false;
+
+document.addEventListener("pointerlockchange", () => {
+  locked = document.pointerLockElement === canvas;
+  crosshair.style.display = locked ? "block" : "none";
+  if (!locked && !TOUCH) canvas.style.cursor = "grab";
+});
+document.addEventListener("pointerlockerror", () => { locked = false; });
+
+function look(dx, dy) {
+  yaw -= dx * 0.0022;
+  pitch -= dy * 0.0022;
+  pitch = Math.max(-1.4, Math.min(1.4, pitch));
+}
+
+// direction the camera is facing, pitch included, so forward motion can climb
+const _dir = new THREE.Vector3();
+function lookDir() {
+  const cp = Math.cos(pitch);
+  return _dir.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
+}
+
+// ----- pointer lock look (desktop) -----
+document.addEventListener("mousemove", e => {
+  if (locked && !popupOpen) look(e.movementX, e.movementY);
+});
+canvas.addEventListener("click", () => {
+  if (locked && hovered !== null) openPopup(hovered);
+});
+
+// ----- drag / swipe look, one handler for mouse and touch alike -----
+let lookId = null, lastX = 0, lastY = 0, travelled = 0;
+
+canvas.addEventListener("pointerdown", e => {
+  if (locked || popupOpen || lookId !== null) return;
+  lookId = e.pointerId;
+  lastX = e.clientX; lastY = e.clientY; travelled = 0;
+  canvas.setPointerCapture(e.pointerId);
+  if (!TOUCH) canvas.style.cursor = "grabbing";
+});
+
+canvas.addEventListener("pointermove", e => {
+  if (popupOpen) return;
+  if (!TOUCH && !locked) aim.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  if (e.pointerId !== lookId) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  travelled += Math.hypot(dx, dy);
+  const k = TOUCH ? 1.7 : 1;
+  look(-dx * k, -dy * k);
+});
+
+function endLook(e) {
+  if (e.pointerId !== lookId) return;
+  lookId = null;
+  if (!TOUCH) canvas.style.cursor = hovered !== null ? "pointer" : "grab";
+  if (popupOpen || travelled > 9) return;   // a drag, not a tap
+  aim.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  const hit = pickAt(aim);
+  if (hit !== null) { openPopup(hit); return; }
+  if (!TOUCH && !locked) requestLock();     // click empty space for mouse-look
+}
+canvas.addEventListener("pointerup", endLook);
+canvas.addEventListener("pointercancel", e => { if (e.pointerId === lookId) lookId = null; });
+
+// ----- scroll wheel glides along the view direction -----
+addEventListener("wheel", e => {
+  if (popupOpen) return;
+  e.preventDefault();
+  const step = Math.max(-1.1, Math.min(1.1, -e.deltaY * 0.012));
+  camera.position.addScaledVector(lookDir(), step);
+  applyBounds();
+}, { passive: false });
+
+// ----- on-screen stick -----
+const stickEl = document.getElementById("stick");
+const knobEl = document.getElementById("knob");
+let stickId = null;
+
+function setStick(e) {
+  const r = stickEl.getBoundingClientRect();
+  const max = r.width / 2 - 12;
+  let dx = e.clientX - (r.left + r.width / 2);
+  let dy = e.clientY - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy);
+  if (d > max) { dx *= max / d; dy *= max / d; }
+  knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  joy.x = dx / max;
+  joy.y = -dy / max;          // pushing up means forward
+}
+function clearStick() {
+  stickId = null; joy.x = 0; joy.y = 0;
+  knobEl.style.transform = "";
+}
+stickEl.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  stickId = e.pointerId;
+  stickEl.setPointerCapture(e.pointerId);
+  setStick(e);
+});
+stickEl.addEventListener("pointermove", e => { if (e.pointerId === stickId) setStick(e); });
+stickEl.addEventListener("pointerup", clearStick);
+stickEl.addEventListener("pointercancel", clearStick);
+
+// ----- rise / descend buttons -----
+[["btn-up", 1], ["btn-down", -1]].forEach(([id, dirSign]) => {
+  const b = document.getElementById(id);
+  b.addEventListener("pointerdown", e => { e.preventDefault(); vert = dirSign; b.setPointerCapture(e.pointerId); });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(ev => b.addEventListener(ev, () => { vert = 0; }));
+});
+
+document.addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "Space") e.preventDefault();
+  if (e.code === "Escape" && popupOpen) closePopup();
+});
+document.addEventListener("keyup", e => { keys[e.code] = false; });
+
+// ---------- popup ----------
+const popup = document.getElementById("popup");
+const popupLink = document.getElementById("popup-link");
+const popupImage = document.getElementById("popup-image");
+
+function openPopup(i) {
+  const data = LINKS[i];
+  popupOpen = true;
+  for (const k in keys) keys[k] = false;
+
+  document.getElementById("popup-title").textContent = data.title;
+  document.getElementById("popup-desc").textContent = data.description || "";
+  popupLink.textContent = data.button || "Open";
+  popupLink.href = data.url || "#";
+
+  if (data.image) {
+    popupImage.src = data.image;
+    popupImage.style.display = "block";
+    popupImage.onerror = () => { popupImage.style.display = "none"; };
+  } else {
+    popupImage.style.display = "none";
+  }
+
+  popup.style.display = "block";
+  crosshair.style.display = "none";
+  hint.style.opacity = 0;
+  clearStick(); vert = 0;
+  stickEl.style.visibility = "hidden";
+  document.getElementById("vert").style.visibility = "hidden";
+  wasLocked = locked;
+  if (locked) document.exitPointerLock();
+  popupLink.focus();
+}
+
+function closePopup() {
+  popup.style.display = "none";
+  popupOpen = false;
+  stickEl.style.visibility = "";
+  document.getElementById("vert").style.visibility = "";
+  if (wasLocked) requestLock();
+}
+document.getElementById("popup-close").addEventListener("click", closePopup);
+popupLink.addEventListener("click", () => setTimeout(closePopup, 100));
+
+// ---------- hover detection ----------
+const raycaster = new THREE.Raycaster();
+raycaster.far = 22;   // how far a station will respond from
+let hovered = null;
+
+function findLinkIndex(obj) {
+  while (obj) {
+    if (obj.userData.linkIndex !== undefined) return obj.userData.linkIndex;
+    obj = obj.parent;
+  }
+  return null;
+}
+
+const CENTRE = new THREE.Vector2(0, 0);
+
+function pickAt(v) {
+  raycaster.setFromCamera(v, camera);
+  const hit = raycaster.intersectObjects(clickables, true)[0];
+  return hit ? findLinkIndex(hit.object) : null;
+}
+
+function updateHover() {
+  let next = null;
+  // touch has no pointer to hover with; taps pick directly instead
+  if (!popupOpen && (locked || (dragMode && !TOUCH))) next = pickAt(locked ? CENTRE : aim);
+  hovered = next;
+  crosshair.classList.toggle("active", hovered !== null);
+  hint.style.opacity = hovered !== null && locked ? 1 : 0;
+  if (dragMode && !TOUCH && lookId === null) canvas.style.cursor = hovered !== null ? "pointer" : "grab";
+
+  stations.forEach((s, i) => {
+    const on = hovered === i && i !== 3;   // the exit is clickable but never lights up
+    s.glowMats.forEach(m => m.emissiveIntensity = m.userData.base * (on ? 2 : 1) + (on ? 0.12 : 0));
+    if (s.picMat && s.picMat.map) s.picMat.color.setHex(on ? 0xf2f2f2 : 0xdedede);
+    if (s.picMat) s.picMat.userData.hover = on;
+    s.light.intensity = s.light.userData.base * (on ? 1.28 : 1);
+  });
+}
+
+// ---------- movement + collision ----------
+function pushOutOfBox(p, b, pad) {
+  const dx = p.x - b.ox, dz = p.z - b.oz;
+  const c = Math.cos(-b.rot), s = Math.sin(-b.rot);
+  let lx = dx * c - dz * s;
+  let lz = dx * s + dz * c;
+
+  const minX = -b.hx - pad, maxX = b.hx + pad;
+  const minZ = b.cz - b.hz - pad, maxZ = b.cz + b.hz + pad;
+  if (lx <= minX || lx >= maxX || lz <= minZ || lz >= maxZ) return;
+
+  const l = lx - minX, r = maxX - lx, back = lz - minZ, front = maxZ - lz;
+  const m = Math.min(l, r, back, front);
+  if (m === l) lx = minX; else if (m === r) lx = maxX;
+  else if (m === back) lz = minZ; else lz = maxZ;
+
+  const c2 = Math.cos(b.rot), s2 = Math.sin(b.rot);
+  p.x = b.ox + (lx * c2 - lz * s2);
+  p.z = b.oz + (lx * s2 + lz * c2);
+}
+
+// Keep the camera inside the pyramid. The walls lean in, so the space allowed
+// shrinks as you rise, and the corner sections only obstruct you while you're
+// below their tops - above that you can fly over them.
+function applyBounds() {
+  const p = camera.position;
+  p.y = Math.max(0.7, Math.min(HEIGHT - 3, p.y));
+
+  const limit = Math.max(0.6, HALF - (p.y + 0.4) * SLOPE - 0.5);
+  p.x = Math.max(-limit, Math.min(limit, p.x));
+  p.z = Math.max(-limit, Math.min(limit, p.z));
+
+  if (p.y < BLOCK_H + 0.4) {
+    const diag = Math.abs(p.x) + Math.abs(p.z);
+    const diagMax = FACE_DIST * Math.SQRT2 - 1.2;
+    if (diag > diagMax) { const k = diagMax / diag; p.x *= k; p.z *= k; }
+    blockers.forEach(b => pushOutOfBox(p, b, 0.5));
+  }
+
+  if (p.y < 2.8) {
+    stations.forEach(s => {
+      if (s.px === undefined) return;
+      const dx = p.x - s.px, dz = p.z - s.pz;
+      const dist = Math.hypot(dx, dz), minD = 1.1;
+      if (dist < minD && dist > 0) { p.x = s.px + dx / dist * minD; p.z = s.pz + dz / dist * minD; }
+    });
+  }
+}
+
+function move(dt) {
+  if (popupOpen) return;
+  let f = 0, r = 0, up = 0;
+  if (keys.KeyW || keys.ArrowUp) f += 1;
+  if (keys.KeyS || keys.ArrowDown) f -= 1;
+  if (keys.KeyD || keys.ArrowRight) r += 1;
+  if (keys.KeyA || keys.ArrowLeft) r -= 1;
+  if (keys.Space) up += 1;
+  if (keys.ShiftLeft || keys.ShiftRight || keys.KeyC) up -= 1;
+
+  f += joy.y; r += joy.x; up += vert;
+
+  const len = Math.hypot(f, r);
+  if (len > 1) { f /= len; r /= len; }
+
+  const step = SPEED * dt;
+  const p = camera.position;
+
+  if (f) p.addScaledVector(lookDir(), f * step);            // forward follows your gaze, so you can climb
+  if (r) { p.x += Math.cos(yaw) * r * step; p.z += -Math.sin(yaw) * r * step; }
+  if (up) p.y += up * step;
+
+  if (f || r || up) applyBounds();
+}
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+let rainClock = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  move(dt);
+  camera.rotation.set(pitch, yaw, 0);
+
+  stations.forEach(({ item }, i) => {
+    if (!item) return;
+    if (item.userData.tick) { item.userData.tick(t, dt); return; }
+    item.position.y = 1.8 + Math.sin(t * 1.4 + i) * 0.07;
+    item.rotation.y += dt * 0.5;
+    item.children.forEach(ch => { if (ch.userData.speed) ch.rotation.x += dt * ch.userData.speed; });
+    if (item.userData.orbit) item.userData.orbit.rotation.y += dt * 1.5;
+  });
+  // torchlight flicker on the pictures
+  stations.forEach((st, i) => {
+    const m = st.picMat;
+    if (!m || !m.map) return;
+    const slow = 0.5 + 0.5 * Math.sin(t * 8.7 + i * 2.7);
+    const fast = 0.5 + 0.5 * Math.sin(t * 21.3 + i * 1.3);
+    const dip = Math.sin(t * 3.1 + i) > 0.94 ? 0.82 : 1;
+    m.opacity = PIC_OPACITY * (0.88 + 0.12 * (slow * 0.65 + fast * 0.35)) * dip
+              * (m.userData.hover ? 1.06 : 1);
+  });
+
+  rainClock += dt;
+  if (rainClock > 0.05) { rainClock = 0; drawRain(); }   // bigger = slower fall
+  rainLayers.forEach(m => { m.rotation.y += dt * m.userData.spin; });
+
+  updateHover();
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+} // end buildTemple
+</script>
+</body>
+</html>
