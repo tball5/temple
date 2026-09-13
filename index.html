@@ -123,9 +123,9 @@ const PEDESTAL_DIST = FACE_DIST - 3.2;
 // Picture on each wall face, per station: width, height, centre height, opacity.
 // Order matches LINKS: chess, pondering, solar.
 const PICS = [
-  { w: 6.4, h: 4.2, y: 3.8,  opacity: 0.6 },   // chess: larger, hangs lower
-  { w: 5.6, h: 3.3, y: 4.3,  opacity: 0.8 },
-  { w: 5.6, h: 3.3, y: 4.3,  opacity: 0.6 }
+  { w: 6.4, h: 4.2, y: 3.8,  opacity: 0.4 },   // chess: larger, hangs lower
+  { w: 5.6, h: 3.3, y: 4.3,  opacity: 0.7 },
+  { w: 5.6, h: 3.3, y: 4.3,  opacity: 0.4 }
 ];
 
 // Name chiselled straight into the wall above the picture
@@ -1023,8 +1023,10 @@ function endLook(e) {
   if (popupOpen || travelled > 9) return;   // a drag, not a tap
   aim.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   const hit = pickAt(aim);
-  if (hit !== null) { openPopup(hit); return; }
-  if (!TOUCH && !locked) requestLock();     // click empty space for mouse-look
+  if (hit !== null) openPopup(hit);
+  // A click that hits nothing does nothing. It used to capture the mouse for
+  // pointer-lock look, which meant clicking a station from beyond pick range
+  // silently swapped you into crosshair mode instead of opening it.
 }
 canvas.addEventListener("pointerup", endLook);
 canvas.addEventListener("pointercancel", e => { if (e.pointerId === lookId) lookId = null; });
